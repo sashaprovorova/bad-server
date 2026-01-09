@@ -1,6 +1,5 @@
 import { Joi, celebrate } from 'celebrate'
 import { Types } from 'mongoose'
-import { StatusType } from '../models/order'
 
 // eslint-disable-next-line no-useless-escape
 export const phoneRegExp = /^(\+\d+)?(?:\s|-?|\(?\d+\)?)+$/
@@ -55,11 +54,13 @@ export const validateOrderBody = celebrate({
     }),
 })
 
+const ORDER_STATUSES = ['cancelled', 'completed', 'new', 'delivering'] as const
+
 export const validateOrderStatusUpdateBody = celebrate({
     body: Joi.object()
         .keys({
             status: Joi.string()
-                .valid(...Object.values(StatusType))
+                .valid(...ORDER_STATUSES)
                 .required()
                 .messages({
                     'any.only': 'Некорректный статус',
