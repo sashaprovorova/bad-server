@@ -13,18 +13,35 @@ import routes from './routes'
 const { PORT = 3000 } = process.env
 const app = express()
 
-app.use(cookieParser())
+const allowedOrigins = [
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:3000',
+]
 
-app.use(cors())
+const corsOptions: cors.CorsOptions = {
+    origin(origin, callback) {
+        if (!origin) return callback(null, true)
+        if (allowedOrigins.includes(origin)) return callback(null, true)
+        return callback(new Error('Not allowed by CORS'))
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+}
+
+app.use(cookieParser())
+app.use(cors(corsOptions))
+app.options('*', cors(corsOptions))
 // app.use(cors({ origin: ORIGIN_ALLOW, credentials: true }));
 // app.use(express.static(path.join(__dirname, 'public')));
 
 app.use(serveStatic(path.join(__dirname, 'public')))
 
-app.use(urlencoded({ extended: true }))
-app.use(json())
+app.use(urlencoded({ extended: true, limit: '10kb' }))
+app.use(json({ limit: '10kb' }))
 
-app.options('*', cors())
 app.use(routes)
 app.use(errors())
 app.use(errorHandler)
