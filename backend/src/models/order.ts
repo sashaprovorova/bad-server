@@ -4,6 +4,7 @@ import validator from 'validator'
 import { PaymentType, phoneRegExp } from '../middlewares/validations'
 import Counter from './counter'
 import User from './user'
+import sanitizeText from '../utils/sanitizeText'
 
 export enum StatusType {
     Cancelled = 'cancelled',
@@ -75,6 +76,11 @@ const orderSchema: Schema = new Schema(
 orderSchema.pre('save', async function incrementOrderNumber(next) {
     const order = this
 
+    if (typeof this.comment === 'string')
+        this.comment = sanitizeText(this.comment)
+    if (typeof this.deliveryAddress === 'string')
+        this.deliveryAddress = sanitizeText(this.deliveryAddress)
+
     if (order.isNew) {
         const counter = await Counter.findOneAndUpdate(
             {},
@@ -85,6 +91,23 @@ orderSchema.pre('save', async function incrementOrderNumber(next) {
         order.orderNumber = counter.sequenceValue
     }
 
+    next()
+})
+
+orderSchema.pre('findOneAndUpdate', function sanitizeUpdate(next) {
+    const update: any = this.getUpdate() ?? {}
+
+    const sanitizeField = (obj: any, key: string) => {
+        if (obj && typeof obj[key] === 'string')
+            obj[key] = sanitizeText(obj[key])
+    }
+
+    sanitizeField(update, 'comment')
+    sanitizeField(update, 'deliveryAddress')
+    sanitizeField(update.$set, 'comment')
+    sanitizeField(update.$set, 'deliveryAddress')
+
+    this.setUpdate(update)
     next()
 })
 

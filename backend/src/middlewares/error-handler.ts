@@ -7,8 +7,6 @@ const errorHandler: ErrorRequestHandler = (err, _req, res, next) => {
     console.log(err)
 
     res.status(statusCode).send({ message })
-
-    next()
 }
 
 export default errorHandler

@@ -6,6 +6,7 @@ import Order, { IOrder, StatusType } from '../models/order'
 import Product, { IProduct } from '../models/product'
 import User from '../models/user'
 import escapeRegExp from '../utils/escapeRegExp'
+import sanitizeText from '../utils/sanitizeText'
 
 // eslint-disable-next-line max-len
 // GET /orders?page=2&limit=5&sort=totalAmount&order=desc&orderDateFrom=2024-07-01&orderDateTo=2024-08-01&status=delivering&totalAmountFrom=100&totalAmountTo=1000&search=%2B1
@@ -28,6 +29,27 @@ export const getOrders = async (
             orderDateTo,
             search,
         } = req.query
+
+        const allowedSortFields = new Set([
+            'createdAt',
+            'totalAmount',
+            'status',
+            'orderNumber',
+        ])
+
+        if (
+            typeof sortField === 'string' &&
+            !allowedSortFields.has(sortField)
+        ) {
+            return next(new BadRequestError('Некорректное поле сортировки'))
+        }
+
+        if (
+            typeof sortOrder === 'string' &&
+            !['asc', 'desc'].includes(sortOrder)
+        ) {
+            return next(new BadRequestError('Некорректный порядок сортировки'))
+        }
 
         const pageNum = Math.max(1, Number(page))
         const limitNum = Math.min(10, Math.max(1, Number(limit)))
@@ -113,13 +135,11 @@ export const getOrders = async (
         const totalOrders = countRes[0]?.total ?? 0
         const totalPages = Math.ceil(totalOrders / limitNum)
 
-        const sort: { [key: string]: any } = {}
-
-        if (sortField && sortOrder) {
-            sort[sortField as string] = sortOrder === 'desc' ? -1 : 1
-        }
-
-        if (!Object.keys(sort).length) sort.createdAt = -1
+        // const sort: { [key: string]: any } = {}
+        const sort: Record<string, 1 | -1> = {}
+        const sf = typeof sortField === 'string' ? sortField : 'createdAt'
+        const so = sortOrder === 'asc' ? 1 : -1
+        sort[sf] = so
 
         const orders = await Order.aggregate([
             ...prePaginationPipeline,
@@ -299,6 +319,43 @@ export const createOrder = async (
         const { address, payment, phone, total, email, items, comment } =
             req.body
 
+        if (!Array.isArray(items) || items.length === 0 || items.length > 50) {
+            return next(new BadRequestError('Некорректные товары'))
+        }
+
+        if (typeof total !== 'number' || !Number.isFinite(total) || total < 0) {
+            return next(new BadRequestError('Некорректная сумма заказа'))
+        }
+
+        const MAX_COMMENT_LEN = 500
+        const MAX_ADDRESS_LEN = 200
+        const MAX_PHONE_LEN = 20
+        const MAX_EMAIL_LEN = 100
+
+        if (
+            typeof phone !== 'string' ||
+            phone.length > MAX_PHONE_LEN ||
+            !/^\+?[0-9 ()-]+$/.test(phone)
+        ) {
+            return next(new BadRequestError('Некорректный телефон'))
+        }
+
+        if (typeof email !== 'string' || email.length > MAX_EMAIL_LEN) {
+            return next(new BadRequestError('Некорректный email'))
+        }
+
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            return next(new BadRequestError('Некорректный email'))
+        }
+
+        if (typeof address !== 'string' || address.length > MAX_ADDRESS_LEN) {
+            return next(new BadRequestError('Некорректный адрес'))
+        }
+
+        if (comment != null && String(comment).length > MAX_COMMENT_LEN) {
+            return next(new BadRequestError('Слишком длинный комментарий'))
+        }
+
         items.forEach((id: Types.ObjectId) => {
             const product = products.find((p) => p._id.equals(id))
             if (!product) {
@@ -314,13 +371,15 @@ export const createOrder = async (
             return next(new BadRequestError('Неверная сумма заказа'))
         }
 
+        const commentSafe = sanitizeText(comment)
+
         const newOrder = new Order({
             totalAmount: total,
             products: items,
             payment,
             phone,
             email,
-            comment,
+            comment: commentSafe,
             customer: userId,
             deliveryAddress: address,
         })

@@ -27,7 +27,8 @@ const storage = multer.diskStorage({
         file: Express.Multer.File,
         cb: FileNameCallback
     ) => {
-        cb(null, file.originalname)
+        const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')
+        cb(null, `${Date.now()}_${safeName}`)
     },
 })
 
