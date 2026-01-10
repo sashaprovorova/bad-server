@@ -59,7 +59,7 @@ const apiLimiter = rateLimit({
     },
 })
 
-app.use(apiLimiter)
+app.use('/product', apiLimiter)
 
 app.use(routes)
 app.use(errors())
