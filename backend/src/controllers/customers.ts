@@ -102,13 +102,8 @@ export const getCustomers = async (
                 throw new BadRequestError('Слишком длинный поиск')
             }
 
-            if (/[${}\[\]\\]/.test(search)) {
-                throw new BadRequestError('Некорректный поиск')
-            }
-
             const safe = escapeRegExp(search)
             const searchRegex = new RegExp(safe, 'i')
-
             filters.$or = [{ name: searchRegex }, { email: searchRegex }]
         }
 
