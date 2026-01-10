@@ -7,6 +7,7 @@ import Product, { IProduct } from '../models/product'
 import User from '../models/user'
 import escapeRegExp from '../utils/escapeRegExp'
 import sanitizeText from '../utils/sanitizeText'
+import { phoneRegExp } from '../middlewares/validations'
 
 // eslint-disable-next-line max-len
 // GET /orders?page=2&limit=5&sort=totalAmount&order=desc&orderDateFrom=2024-07-01&orderDateTo=2024-08-01&status=delivering&totalAmountFrom=100&totalAmountTo=1000&search=%2B1
@@ -29,6 +30,26 @@ export const getOrders = async (
             orderDateTo,
             search,
         } = req.query
+
+        const assertPlainString = (v: unknown, name: string) => {
+            if (v == null) return
+            if (typeof v !== 'string')
+                throw new BadRequestError(`Некорректный параметр ${name}`)
+        }
+
+        assertPlainString(search, 'search')
+        assertPlainString(status, 'status')
+        assertPlainString(sortField, 'sortField')
+        assertPlainString(sortOrder, 'sortOrder')
+        assertPlainString(orderDateFrom, 'orderDateFrom')
+        assertPlainString(orderDateTo, 'orderDateTo')
+
+        if (typeof search === 'string') {
+            if (search.length > 64)
+                throw new BadRequestError('Слишком длинный поиск')
+            if (/[${}\[\]\\]/.test(search))
+                throw new BadRequestError('Некорректный поиск')
+        }
 
         const allowedSortFields = new Set([
             'createdAt',
@@ -332,11 +353,7 @@ export const createOrder = async (
         const MAX_PHONE_LEN = 20
         const MAX_EMAIL_LEN = 100
 
-        if (
-            typeof phone !== 'string' ||
-            phone.length > MAX_PHONE_LEN ||
-            !/^\+?[0-9 ()-]+$/.test(phone)
-        ) {
+        if (typeof phone !== 'string' || !phoneRegExp.test(phone)) {
             return next(new BadRequestError('Некорректный телефон'))
         }
 
