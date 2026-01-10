@@ -13,6 +13,7 @@ import rateLimit from 'express-rate-limit'
 
 const { PORT = 3000 } = process.env
 const app = express()
+app.set('trust proxy', 1)
 
 const allowedOrigins = new Set([
     'http://localhost:5173',
