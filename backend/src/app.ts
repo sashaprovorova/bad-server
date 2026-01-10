@@ -47,7 +47,7 @@ app.use(json({ limit: '10kb' }))
 
 const apiLimiter = rateLimit({
     windowMs: 60 * 1000,
-    max: 30,
+    max: 5,
     standardHeaders: true,
     legacyHeaders: false,
 })
