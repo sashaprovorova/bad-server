@@ -95,17 +95,31 @@ orderSchema.pre('save', async function incrementOrderNumber(next) {
 })
 
 orderSchema.pre('findOneAndUpdate', function sanitizeUpdate(next) {
-    const update: any = this.getUpdate() ?? {}
+    const rawUpdate = (this.getUpdate() ?? {}) as Record<string, any>
 
-    const sanitizeField = (obj: any, key: string) => {
-        if (obj && typeof obj[key] === 'string')
-            obj[key] = sanitizeText(obj[key])
+    const sanitizeObjectField = (source: any, key: string) => {
+        if (!source || typeof source !== 'object') return source
+        if (typeof source[key] !== 'string') return source
+        return {
+            ...source,
+            [key]: sanitizeText(source[key]),
+        }
     }
 
-    sanitizeField(update, 'comment')
-    sanitizeField(update, 'deliveryAddress')
-    sanitizeField(update.$set, 'comment')
-    sanitizeField(update.$set, 'deliveryAddress')
+    let update = rawUpdate
+    update = sanitizeObjectField(update, 'comment')
+    update = sanitizeObjectField(update, 'deliveryAddress')
+
+    if (update.$set) {
+        update = {
+            ...update,
+            $set: sanitizeObjectField(update.$set, 'comment'),
+        }
+        update = {
+            ...update,
+            $set: sanitizeObjectField(update.$set, 'deliveryAddress'),
+        }
+    }
 
     this.setUpdate(update)
     next()

@@ -47,8 +47,9 @@ export const getOrders = async (
         if (typeof search === 'string') {
             if (search.length > 64)
                 throw new BadRequestError('Слишком длинный поиск')
-            if (/[${}\[\]\\]/.test(search))
+            if (/[${}[\]\\]/.test(search)) {
                 throw new BadRequestError('Некорректный поиск')
+            }
         }
 
         const allowedSortFields = new Set([
@@ -353,7 +354,11 @@ export const createOrder = async (
         const MAX_PHONE_LEN = 20
         const MAX_EMAIL_LEN = 100
 
-        if (typeof phone !== 'string' || !phoneRegExp.test(phone)) {
+        if (
+            typeof phone !== 'string' ||
+            phone.length > MAX_PHONE_LEN ||
+            !phoneRegExp.test(phone)
+        ) {
             return next(new BadRequestError('Некорректный телефон'))
         }
 

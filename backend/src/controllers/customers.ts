@@ -1,7 +1,6 @@
 import { NextFunction, Request, Response } from 'express'
 import { FilterQuery } from 'mongoose'
 import NotFoundError from '../errors/not-found-error'
-import Order from '../models/order'
 import User, { IUser } from '../models/user'
 import BadRequestError from '../errors/bad-request-error'
 import escapeRegExp from '../utils/escapeRegExp'
