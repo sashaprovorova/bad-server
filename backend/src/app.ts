@@ -13,6 +13,7 @@ import rateLimit from 'express-rate-limit'
 
 const { PORT = 3000 } = process.env
 const app = express()
+app.set('trust proxy', 1)
 
 const allowedOrigins = new Set([
     'http://localhost:5173',
@@ -40,23 +41,22 @@ app.options('*', cors())
 // app.use(cors({ origin: ORIGIN_ALLOW, credentials: true }));
 // app.use(express.static(path.join(__dirname, 'public')));
 
-app.use(serveStatic(path.join(__dirname, 'public')))
+const apiLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+})
 
+app.use(apiLimiter)
+
+app.use(serveStatic(path.join(__dirname, 'public')))
 app.use(urlencoded({ extended: true, limit: '10kb' }))
 app.use(json({ limit: '10kb' }))
 
 app.use(routes)
 app.use(errors())
 app.use(errorHandler)
-
-const apiLimiter = rateLimit({
-    windowMs: 60 * 1000,
-    max: 30,
-    standardHeaders: true,
-    legacyHeaders: false,
-})
-
-app.use(apiLimiter)
 
 // eslint-disable-next-line no-console
 
