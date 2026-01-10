@@ -48,19 +48,18 @@ app.use(json({ limit: '10kb' }))
 
 const apiLimiter = rateLimit({
     windowMs: 60 * 1000,
-    max: 3,
+    max: 10,
     standardHeaders: true,
     legacyHeaders: false,
+    keyGenerator: (req) => {
+        const xff = req.headers['x-forwarded-for']
+        if (typeof xff === 'string' && xff.length > 0)
+            return xff.split(',')[0].trim()
+        return req.ip || req.socket.remoteAddress || 'unknown'
+    },
 })
 
-const skipRateLimitPaths = new Set(['/customers', '/upload', '/auth'])
-
-app.use((req, res, next) => {
-    if (Array.from(skipRateLimitPaths).some((p) => req.path.startsWith(p))) {
-        return next()
-    }
-    return apiLimiter(req, res, next)
-})
+app.use('/product', apiLimiter)
 
 app.use(routes)
 app.use(errors())
