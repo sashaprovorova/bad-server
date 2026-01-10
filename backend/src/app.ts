@@ -51,15 +51,21 @@ const apiLimiter = rateLimit({
     max: 10,
     standardHeaders: true,
     legacyHeaders: false,
+
     keyGenerator: (req) => {
         const xff = req.headers['x-forwarded-for']
-        if (typeof xff === 'string' && xff.length > 0)
-            return xff.split(',')[0].trim()
-        return req.ip || req.socket.remoteAddress || 'unknown'
+        const ip =
+            typeof xff === 'string' && xff.length > 0
+                ? xff.split(',')[0].trim()
+                : req.ip || req.socket.remoteAddress || 'unknown'
+
+        const url = (req.originalUrl || req.path).split('?')[0] // remove query
+        return `${ip}:${url}`
     },
 })
 
-app.use('/product', apiLimiter)
+// apply BEFORE routes
+app.use(apiLimiter)
 
 app.use(routes)
 app.use(errors())
