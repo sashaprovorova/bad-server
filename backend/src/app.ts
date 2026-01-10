@@ -46,9 +46,10 @@ const apiLimiter = rateLimit({
     max: 10,
     standardHeaders: true,
     legacyHeaders: false,
+    keyGenerator: (req) => req.ip ?? req.socket.remoteAddress ?? 'unknown',
 })
 
-app.use(apiLimiter)
+app.use('/', apiLimiter)
 
 app.use(serveStatic(path.join(__dirname, 'public')))
 app.use(urlencoded({ extended: true, limit: '10kb' }))
