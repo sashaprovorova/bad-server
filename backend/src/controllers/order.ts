@@ -2,9 +2,12 @@ import { NextFunction, Request, Response } from 'express'
 import { FilterQuery, Error as MongooseError, Types } from 'mongoose'
 import BadRequestError from '../errors/bad-request-error'
 import NotFoundError from '../errors/not-found-error'
-import Order, { IOrder } from '../models/order'
+import Order, { IOrder, StatusType } from '../models/order'
 import Product, { IProduct } from '../models/product'
 import User from '../models/user'
+import escapeRegExp from '../utils/escapeRegExp'
+import sanitizeText from '../utils/sanitizeText'
+import { phoneRegExp } from '../middlewares/validations'
 
 // eslint-disable-next-line max-len
 // GET /orders?page=2&limit=5&sort=totalAmount&order=desc&orderDateFrom=2024-07-01&orderDateTo=2024-08-01&status=delivering&totalAmountFrom=100&totalAmountTo=1000&search=%2B1
@@ -28,15 +31,60 @@ export const getOrders = async (
             search,
         } = req.query
 
+        const assertPlainString = (v: unknown, name: string) => {
+            if (v == null) return
+            if (typeof v !== 'string')
+                throw new BadRequestError(`Некорректный параметр ${name}`)
+        }
+
+        assertPlainString(search, 'search')
+        assertPlainString(status, 'status')
+        assertPlainString(sortField, 'sortField')
+        assertPlainString(sortOrder, 'sortOrder')
+        assertPlainString(orderDateFrom, 'orderDateFrom')
+        assertPlainString(orderDateTo, 'orderDateTo')
+
+        if (typeof search === 'string') {
+            if (search.length > 64)
+                throw new BadRequestError('Слишком длинный поиск')
+            if (/[${}[\]\\]/.test(search)) {
+                throw new BadRequestError('Некорректный поиск')
+            }
+        }
+
+        const allowedSortFields = new Set([
+            'createdAt',
+            'totalAmount',
+            'status',
+            'orderNumber',
+        ])
+
+        if (
+            typeof sortField === 'string' &&
+            !allowedSortFields.has(sortField)
+        ) {
+            return next(new BadRequestError('Некорректное поле сортировки'))
+        }
+
+        if (
+            typeof sortOrder === 'string' &&
+            !['asc', 'desc'].includes(sortOrder)
+        ) {
+            return next(new BadRequestError('Некорректный порядок сортировки'))
+        }
+
+        const pageNum = Math.max(1, Number(page))
+        const limitNum = Math.min(10, Math.max(1, Number(limit)))
+
         const filters: FilterQuery<Partial<IOrder>> = {}
 
-        if (status) {
-            if (typeof status === 'object') {
-                Object.assign(filters, status)
+        const allowedStatuses = new Set(Object.values(StatusType))
+
+        if (typeof status === 'string') {
+            if (!allowedStatuses.has(status as StatusType)) {
+                return next(new BadRequestError('Некорректный статус'))
             }
-            if (typeof status === 'string') {
-                filters.status = status
-            }
+            filters.status = status as StatusType
         }
 
         if (totalAmountFrom) {
@@ -67,7 +115,7 @@ export const getOrders = async (
             }
         }
 
-        const aggregatePipeline: any[] = [
+        const prePaginationPipeline: any[] = [
             { $match: filters },
             {
                 $lookup: {
@@ -90,34 +138,36 @@ export const getOrders = async (
         ]
 
         if (search) {
-            const searchRegex = new RegExp(search as string, 'i')
+            const safeSearch = escapeRegExp(String(search))
+            const searchRegex = new RegExp(safeSearch, 'i')
             const searchNumber = Number(search)
 
             const searchConditions: any[] = [{ 'products.title': searchRegex }]
-
-            if (!Number.isNaN(searchNumber)) {
+            if (!Number.isNaN(searchNumber))
                 searchConditions.push({ orderNumber: searchNumber })
-            }
 
-            aggregatePipeline.push({
-                $match: {
-                    $or: searchConditions,
-                },
-            })
-
-            filters.$or = searchConditions
+            prePaginationPipeline.push({ $match: { $or: searchConditions } })
         }
 
-        const sort: { [key: string]: any } = {}
+        const countRes = await Order.aggregate([
+            ...prePaginationPipeline,
+            { $group: { _id: '$_id' } },
+            { $count: 'total' },
+        ])
+        const totalOrders = countRes[0]?.total ?? 0
+        const totalPages = Math.ceil(totalOrders / limitNum)
 
-        if (sortField && sortOrder) {
-            sort[sortField as string] = sortOrder === 'desc' ? -1 : 1
-        }
+        // const sort: { [key: string]: any } = {}
+        const sort: Record<string, 1 | -1> = {}
+        const sf = typeof sortField === 'string' ? sortField : 'createdAt'
+        const so = sortOrder === 'asc' ? 1 : -1
+        sort[sf] = so
 
-        aggregatePipeline.push(
+        const orders = await Order.aggregate([
+            ...prePaginationPipeline,
             { $sort: sort },
-            { $skip: (Number(page) - 1) * Number(limit) },
-            { $limit: Number(limit) },
+            { $skip: (pageNum - 1) * limitNum },
+            { $limit: limitNum },
             {
                 $group: {
                     _id: '$_id',
@@ -128,20 +178,16 @@ export const getOrders = async (
                     customer: { $first: '$customer' },
                     createdAt: { $first: '$createdAt' },
                 },
-            }
-        )
-
-        const orders = await Order.aggregate(aggregatePipeline)
-        const totalOrders = await Order.countDocuments(filters)
-        const totalPages = Math.ceil(totalOrders / Number(limit))
+            },
+        ])
 
         res.status(200).json({
             orders,
             pagination: {
                 totalOrders,
                 totalPages,
-                currentPage: Number(page),
-                pageSize: Number(limit),
+                currentPage: pageNum,
+                pageSize: limitNum,
             },
         })
     } catch (error) {
@@ -157,9 +203,11 @@ export const getOrdersCurrentUser = async (
     try {
         const userId = res.locals.user._id
         const { search, page = 1, limit = 5 } = req.query
+        const pageNum = Math.max(1, Number(page))
+        const limitNum = Math.min(10, Math.max(1, Number(limit)))
         const options = {
-            skip: (Number(page) - 1) * Number(limit),
-            limit: Number(limit),
+            skip: (pageNum - 1) * limitNum,
+            limit: limitNum,
         }
 
         const user = await User.findById(userId)
@@ -184,18 +232,17 @@ export const getOrdersCurrentUser = async (
         let orders = user.orders as unknown as IOrder[]
 
         if (search) {
-            // если не экранировать то получаем Invalid regular expression: /+1/i: Nothing to repeat
-            const searchRegex = new RegExp(search as string, 'i')
+            const safeSearch = escapeRegExp(String(search))
+            const searchRegex = new RegExp(safeSearch, 'i')
             const searchNumber = Number(search)
+
             const products = await Product.find({ title: searchRegex })
             const productIds = products.map((product) => product._id)
 
             orders = orders.filter((order) => {
-                // eslint-disable-next-line max-len
                 const matchesProductTitle = order.products.some((product) =>
                     productIds.some((id) => id.equals(product._id))
                 )
-                // eslint-disable-next-line max-len
                 const matchesOrderNumber =
                     !Number.isNaN(searchNumber) &&
                     order.orderNumber === searchNumber
@@ -205,7 +252,7 @@ export const getOrdersCurrentUser = async (
         }
 
         const totalOrders = orders.length
-        const totalPages = Math.ceil(totalOrders / Number(limit))
+        const totalPages = Math.ceil(totalOrders / limitNum)
 
         orders = orders.slice(options.skip, options.skip + options.limit)
 
@@ -214,8 +261,8 @@ export const getOrdersCurrentUser = async (
             pagination: {
                 totalOrders,
                 totalPages,
-                currentPage: Number(page),
-                pageSize: Number(limit),
+                currentPage: pageNum,
+                pageSize: limitNum,
             },
         })
     } catch (error) {
@@ -294,6 +341,43 @@ export const createOrder = async (
         const { address, payment, phone, total, email, items, comment } =
             req.body
 
+        if (!Array.isArray(items) || items.length === 0 || items.length > 50) {
+            return next(new BadRequestError('Некорректные товары'))
+        }
+
+        if (typeof total !== 'number' || !Number.isFinite(total) || total < 0) {
+            return next(new BadRequestError('Некорректная сумма заказа'))
+        }
+
+        const MAX_COMMENT_LEN = 500
+        const MAX_ADDRESS_LEN = 200
+        const MAX_PHONE_LEN = 20
+        const MAX_EMAIL_LEN = 100
+
+        if (
+            typeof phone !== 'string' ||
+            phone.length > MAX_PHONE_LEN ||
+            !phoneRegExp.test(phone)
+        ) {
+            return next(new BadRequestError('Некорректный телефон'))
+        }
+
+        if (typeof email !== 'string' || email.length > MAX_EMAIL_LEN) {
+            return next(new BadRequestError('Некорректный email'))
+        }
+
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            return next(new BadRequestError('Некорректный email'))
+        }
+
+        if (typeof address !== 'string' || address.length > MAX_ADDRESS_LEN) {
+            return next(new BadRequestError('Некорректный адрес'))
+        }
+
+        if (comment != null && String(comment).length > MAX_COMMENT_LEN) {
+            return next(new BadRequestError('Слишком длинный комментарий'))
+        }
+
         items.forEach((id: Types.ObjectId) => {
             const product = products.find((p) => p._id.equals(id))
             if (!product) {
@@ -309,13 +393,15 @@ export const createOrder = async (
             return next(new BadRequestError('Неверная сумма заказа'))
         }
 
+        const commentSafe = sanitizeText(comment)
+
         const newOrder = new Order({
             totalAmount: total,
             products: items,
             payment,
             phone,
             email,
-            comment,
+            comment: commentSafe,
             customer: userId,
             deliveryAddress: address,
         })

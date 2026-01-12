@@ -2,7 +2,8 @@ import { Joi, celebrate } from 'celebrate'
 import { Types } from 'mongoose'
 
 // eslint-disable-next-line no-useless-escape
-export const phoneRegExp = /^(\+\d+)?(?:\s|-?|\(?\d+\)?)+$/
+// export const phoneRegExp = /^(\+\d+)?(?:\s|-?|\(?\d+\)?)+$/
+export const phoneRegExp = /^\+?[0-9 ()-]{7,20}$/
 
 export enum PaymentType {
     Card = 'card',
@@ -15,25 +16,31 @@ export const validateOrderBody = celebrate({
         items: Joi.array()
             .items(
                 Joi.string().custom((value, helpers) => {
-                    if (Types.ObjectId.isValid(value)) {
-                        return value
-                    }
+                    if (Types.ObjectId.isValid(value)) return value
                     return helpers.message({ custom: 'Невалидный id' })
                 })
             )
+            .min(1)
+            .max(50)
+            .required()
             .messages({
-                'array.empty': 'Не указаны товары',
+                'array.base': 'Некорректные товары',
+                'array.min': 'Не указаны товары',
+                'array.max': 'Слишком много товаров',
+                'any.required': 'Не указаны товары',
             }),
         payment: Joi.string()
             .valid(...Object.values(PaymentType))
             .required()
             .messages({
-                'string.valid':
+                'any.only':
                     'Указано не валидное значение для способа оплаты, возможные значения - "card", "online"',
                 'string.empty': 'Не указан способ оплаты',
+                'any.required': 'Не указан способ оплаты',
             }),
         email: Joi.string().email().required().messages({
             'string.empty': 'Не указан email',
+            'any.required': 'Не указан email',
         }),
         phone: Joi.string().required().pattern(phoneRegExp).messages({
             'string.empty': 'Не указан телефон',
@@ -46,6 +53,23 @@ export const validateOrderBody = celebrate({
         }),
         comment: Joi.string().optional().allow(''),
     }),
+})
+
+const ORDER_STATUSES = ['cancelled', 'completed', 'new', 'delivering'] as const
+
+export const validateOrderStatusUpdateBody = celebrate({
+    body: Joi.object()
+        .keys({
+            status: Joi.string()
+                .valid(...ORDER_STATUSES)
+                .required()
+                .messages({
+                    'any.only': 'Некорректный статус',
+                    'string.empty': 'Не указан статус',
+                    'any.required': 'Не указан статус',
+                }),
+        })
+        .required(),
 })
 
 // валидация товара.

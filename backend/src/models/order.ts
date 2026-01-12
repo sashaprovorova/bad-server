@@ -4,6 +4,7 @@ import validator from 'validator'
 import { PaymentType, phoneRegExp } from '../middlewares/validations'
 import Counter from './counter'
 import User from './user'
+import sanitizeText from '../utils/sanitizeText'
 
 export enum StatusType {
     Cancelled = 'cancelled',
@@ -15,7 +16,7 @@ export enum StatusType {
 export interface IOrder extends Document {
     id: Types.ObjectId
     orderNumber: number
-    status: string
+    status: StatusType
     totalAmount: number
     products: Types.ObjectId[]
     payment: PaymentType
@@ -75,6 +76,11 @@ const orderSchema: Schema = new Schema(
 orderSchema.pre('save', async function incrementOrderNumber(next) {
     const order = this
 
+    if (typeof this.comment === 'string')
+        this.comment = sanitizeText(this.comment)
+    if (typeof this.deliveryAddress === 'string')
+        this.deliveryAddress = sanitizeText(this.deliveryAddress)
+
     if (order.isNew) {
         const counter = await Counter.findOneAndUpdate(
             {},
@@ -85,6 +91,37 @@ orderSchema.pre('save', async function incrementOrderNumber(next) {
         order.orderNumber = counter.sequenceValue
     }
 
+    next()
+})
+
+orderSchema.pre('findOneAndUpdate', function sanitizeUpdate(next) {
+    const rawUpdate = (this.getUpdate() ?? {}) as Record<string, any>
+
+    const sanitizeObjectField = (source: any, key: string) => {
+        if (!source || typeof source !== 'object') return source
+        if (typeof source[key] !== 'string') return source
+        return {
+            ...source,
+            [key]: sanitizeText(source[key]),
+        }
+    }
+
+    let update = rawUpdate
+    update = sanitizeObjectField(update, 'comment')
+    update = sanitizeObjectField(update, 'deliveryAddress')
+
+    if (update.$set) {
+        update = {
+            ...update,
+            $set: sanitizeObjectField(update.$set, 'comment'),
+        }
+        update = {
+            ...update,
+            $set: sanitizeObjectField(update.$set, 'deliveryAddress'),
+        }
+    }
+
+    this.setUpdate(update)
     next()
 })
 

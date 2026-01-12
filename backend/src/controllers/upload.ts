@@ -1,5 +1,5 @@
+import sharp from 'sharp'
 import { NextFunction, Request, Response } from 'express'
-import { constants } from 'http2'
 import BadRequestError from '../errors/bad-request-error'
 
 export const uploadFile = async (
@@ -7,20 +7,25 @@ export const uploadFile = async (
     res: Response,
     next: NextFunction
 ) => {
-    if (!req.file) {
-        return next(new BadRequestError('Файл не загружен'))
-    }
     try {
-        const fileName = process.env.UPLOAD_PATH
-            ? `/${process.env.UPLOAD_PATH}/${req.file.filename}`
-            : `/${req.file?.filename}`
-        return res.status(constants.HTTP_STATUS_CREATED).send({
-            fileName,
-            originalName: req.file?.originalname,
+        if (!req.file) {
+            return next(new BadRequestError('Файл не загружен'))
+        }
+
+        if (req.file.size <= 2048) {
+            return next(new BadRequestError('Файл слишком маленький'))
+        }
+
+        const meta = await sharp(req.file.path).metadata()
+        if (!meta.width || !meta.height) {
+            return next(new BadRequestError('Некорректное изображение'))
+        }
+
+        return res.status(200).json({
+            fileName: req.file.filename,
+            originalName: req.file.originalname,
         })
-    } catch (error) {
-        return next(error)
+    } catch {
+        return next(new BadRequestError('Некорректное изображение'))
     }
 }
-
-export default {}

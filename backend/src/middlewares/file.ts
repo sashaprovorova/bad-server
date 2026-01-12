@@ -11,15 +11,8 @@ const storage = multer.diskStorage({
         _file: Express.Multer.File,
         cb: DestinationCallback
     ) => {
-        cb(
-            null,
-            join(
-                __dirname,
-                process.env.UPLOAD_PATH_TEMP
-                    ? `../public/${process.env.UPLOAD_PATH_TEMP}`
-                    : '../public'
-            )
-        )
+        const tempDir = process.env.UPLOAD_PATH_TEMP || 'temp'
+        cb(null, join(__dirname, `../public/${tempDir}`))
     },
 
     filename: (
@@ -27,7 +20,12 @@ const storage = multer.diskStorage({
         file: Express.Multer.File,
         cb: FileNameCallback
     ) => {
-        cb(null, file.originalname)
+        const ext = file.originalname.split('.').pop()
+        const safeExt = ext ? ext.replace(/[^a-zA-Z0-9]/g, '') : 'bin'
+        cb(
+            null,
+            `${Date.now()}_${Math.random().toString(16).slice(2)}.${safeExt}`
+        )
     },
 })
 
@@ -51,4 +49,11 @@ const fileFilter = (
     return cb(null, true)
 }
 
-export default multer({ storage, fileFilter })
+// export default multer({ storage, fileFilter })
+export default multer({
+    storage,
+    fileFilter,
+    limits: {
+        fileSize: 10 * 1024 * 1024,
+    },
+})
